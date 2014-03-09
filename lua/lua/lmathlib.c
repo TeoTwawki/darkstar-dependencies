@@ -7,6 +7,8 @@
 
 #include <stdlib.h>
 #include <math.h>
+#include <stdint.h>
+#include <time.h>
 
 #define lmathlib_c
 #define LUA_LIB
@@ -21,6 +23,44 @@
 #define PI (3.14159265358979323846)
 #define RADIANS_PER_DEGREE (PI/180.0)
 
+
+
+static uint32_t state[16];
+static uint32_t index = 0;
+static uint8_t w512init = 0;
+
+static void w512seed(uint32_t seed)
+{
+  // Expand the seed with the same algorithm as mersenne twister
+  const uint32_t mask = ~0u;
+  uint32_t i;
+  w512init = 1;
+  index = 0;
+  state[0] = seed & mask;
+  for (i = 1; i < 16; ++i)
+    state[i] = (1812433253UL * (state[i - 1] ^ (state[i - 1] >> 30)) + i) & mask;
+}
+
+static double drand()
+{
+  // WELL512 implementation by Chris Lomont
+  // http://lomont.org/Math/Papers/2008/Lomont_PRNG_2008.pdf)
+  // generates double floating point numbers in the half-open interval [0, 1)
+  uint32_t a, b, c, d;
+  if (!w512init)
+    w512seed((uint32_t)time(NULL));
+  a = state[index];
+  c = state[(index + 13) & 15];
+  b = a ^ c ^ (a << 16) ^ (c << 15);
+  c = state[(index + 9) & 15];
+  c ^= (c >> 11);
+  a = state[index] = b ^ c;
+  d = a ^ ((a << 5) & 0xDA442D24UL);
+  index = (index + 15) & 15;
+  a = state[index];
+  state[index] = a ^ b ^ d ^ (a << 2) ^ (b << 18) ^ (c << 28);
+  return (double)(state[index]) * (1. / 4294967296.); // divided by 2^32
+}
 
 
 static int math_abs (lua_State *L) {
@@ -179,9 +219,7 @@ static int math_max (lua_State *L) {
 
 
 static int math_random (lua_State *L) {
-  /* the `%' avoids the (rare) case of r==1, and is needed also because on
-     some systems (SunOS!) `rand()' may return a value larger than RAND_MAX */
-  lua_Number r = (lua_Number)(rand()%RAND_MAX) / (lua_Number)RAND_MAX;
+  lua_Number r = (lua_Number)drand();
   switch (lua_gettop(L)) {  /* check number of arguments */
     case 0: {  /* no arguments */
       lua_pushnumber(L, r);  /* Number between 0 and 1 */
@@ -207,7 +245,7 @@ static int math_random (lua_State *L) {
 
 
 static int math_randomseed (lua_State *L) {
-  srand(luaL_checkint(L, 1));
+  w512seed(luaL_checkint(L, 1));
   return 0;
 }
 
